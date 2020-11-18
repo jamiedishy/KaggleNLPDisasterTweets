@@ -1,117 +1,157 @@
 import numpy as np
 import csv as csv
 import pandas as pd
-import re as re
-from collections import Counter
-from sklearn.naive_bayes import GaussianNB
-from sklearn.tree import DecisionTreeClassifier
+import nltk
+import re
 from sklearn.metrics import precision_recall_fscore_support
 from sklearn.metrics import classification_report
-from sklearn.feature_extraction.text import CountVectorizer
-
 from gensim.models import Word2Vec
-
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import AdaBoostClassifier
-
-from sklearn.neural_network import MLPClassifier
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
-from sklearn.gaussian_process import GaussianProcessClassifier
-from sklearn.gaussian_process.kernels import RBF
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
-from sklearn.naive_bayes import GaussianNB
-from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
+from nltk.tokenize import word_tokenize
+from nltk.stem import PorterStemmer
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
 
-import struct
-print(struct.calcsize("P") * 8)
+input_file_training = pd.read_csv("../data/train.csv")
+input_file_test = pd.read_csv("../data/test.csv")
 
-input_file_training = "../data/train.csv"
-input_file_test = "../data/test.csv"
-
-vectorizer = CountVectorizer(stop_words="english", min_df=4)
-
-# load the training data as a matrix
-dataset = pd.read_csv(input_file_training, header=0, encoding='ISO-8859-1')
-
-# load the testing data
-dataset2 = pd.read_csv(input_file_test, header=0, encoding='ISO-8859-1')
-
-# cleaning data
+print("Cleaning data")
 temp_data = []
-for i in range(0, len(dataset.text)):
+for i in range(0, len(input_file_training.text)):
     temp = re.sub(
-        r'(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])?', '', dataset.text[i])
+        r"(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])?",
+        "",
+        input_file_training.text[i],
+    )
     # remove any remaining non alphabet or non empty space character
-    temp = re.sub(r'[^\x00-\x7F]+', '', temp)
+    temp = re.sub(r"[^\x00-\x7F]+", "", temp)
     temp_data.append(temp)
 
-X = vectorizer.fit_transform(temp_data)
-words = vectorizer.vocabulary_
+clean_training_df = pd.DataFrame(temp_data, columns=["text"])
+# clean_training_text = clean_training_df.text
+input_file_training.text = clean_training_df
 
-dataset_extra = pd.DataFrame(
-    X.todense(), columns=vectorizer.get_feature_names())
+print("Removing special characters from commit dataframe")
+spec_chars = [
+    "!",
+    '"',
+    "#",
+    "%",
+    "&",
+    "'",
+    "(",
+    ")",
+    "*",
+    "+",
+    ",",
+    "-",
+    ".",
+    "/",
+    ":",
+    ";",
+    "<",
+    "=",
+    ">",
+    "?",
+    "@",
+    "[",
+    "\\",
+    "]",
+    "^",
+    "_",
+    "`",
+    "{",
+    "|",
+    "}",
+    "~",
+    "–",
+    "$",
+    "ø",
+    "å",
+]
+input_file_training.text = input_file_training.text.str.replace(
+    "|".join(map(re.escape, spec_chars)), ""
+)
+# remove numbers
+input_file_training.text = input_file_training.text.str.replace("\d+", "")
 
-# dataframe with the features and id
-dataset = dataset.merge(dataset_extra, left_index=True, right_index=True)
+input_file_training.text = input_file_training.text.str.split().str.join(" ")
 
-# remove unnecessary features
-dataset = dataset.drop('id_x', axis=1)
-dataset = dataset.drop('keyword', axis=1)
-dataset = dataset.drop('location_x', axis=1)
-dataset = dataset.drop('text_x', axis=1)
+# Stemming, Remove stop words
+print("Tokenizing comments from commit dataframe")
+print("Lemmatizing, removing stop words and characters with a length of 1")
+w_tokenizer = nltk.tokenize.WhitespaceTokenizer()
+# stemmer = PorterStemmer()
+lemmatizer = WordNetLemmatizer()
+stop = stopwords.words("english")
 
 
-target = dataset.target_x
+def stem_remove_stop_words(row):
+    place_holder = ""
+    for word in w_tokenizer.tokenize(row):
+        # stem = stemmer.stem(word)
+        lem = lemmatizer.lemmatize(word)
+        if lem.lower() not in stop and len(lem) > 2:
+            place_holder += lem + " "
+    return place_holder
+
+
+input_file_training.text = input_file_training.text.apply(
+    lambda x: stem_remove_stop_words(x)
+)
+input_file_training.to_csv("cleaned_data.csv", index=False)
+
+print("Collecting most frequent words from clean commit data with frequency > 3")
+vectorizer = CountVectorizer(stop_words="english", min_df=4)
+frequent_words = vectorizer.fit_transform(input_file_training.text)
+
+print("Creating table for most frequent words given text column")
+
+
+def bag_of_words():
+    sentence_vectors = []
+    for index, row in input_file_training.text.items():
+        sentece_tokens = nltk.word_tokenize(row)
+        sent_vec = []
+        for token in vectorizer.get_feature_names():
+            if token in sentece_tokens:
+                sent_vec.append(1)
+            else:
+                sent_vec.append(0)
+        sentence_vectors.append(sent_vec)
+    return sentence_vectors
+
+
+word_frequency_df = pd.DataFrame(bag_of_words(), columns=vectorizer.get_feature_names())
+word_frequency_df = word_frequency_df.assign(id=input_file_training.id)
+
+
+training_data_final_df = pd.merge(
+    left=input_file_training,
+    right=word_frequency_df,
+    how="left",
+    left_on="id",
+    right_on="id",
+)
+
+
+train_target = training_data_final_df["target_x"]
+training_data_final_df = training_data_final_df.drop("id", axis=1)
+training_data_final_df = training_data_final_df.drop("keyword", axis=1)
+training_data_final_df = training_data_final_df.drop("location_x", axis=1)
+training_data_final_df = training_data_final_df.drop("text_x", axis=1)
+
+training_data_final_df.to_csv("training_data_final.csv", index=False)
 
 train_x, test_x, train_y, test_y = train_test_split(
-    dataset, target, test_size=0.2, random_state=1)
+    training_data_final_df, train_target, test_size=0.2, random_state=1
+)
 
-# the lables of training data. `isReq` is the title of the  last column in your CSV files
+classifiers = [SVC(kernel="linear", C=0.025), SVC(gamma=2, C=1)]
 
-# gnb = GaussianNB()
-# # potential candidate - max_depth
-# decision_t = DecisionTreeClassifier(
-#     random_state=1, max_depth=20, max_leaf_nodes=215, min_samples_split=2)
-# test_pred = decision_t.fit(train_x, train_y).predict(test_x)
-# print(classification_report(test_y, test_pred, labels=[0, 1]))
-
-# README: Bag of words and no location/keywords consideration. probably not the best approach.
-print('----------------------MORE CLASSIFIERS-----------------------')
-classifiers = [
-    # KNeighborsClassifier(3),
-    SVC(kernel="linear", C=0.025),
-    SVC(gamma=2, C=1),
-    #     GaussianProcessClassifier(1.0 * RBF(1.0)),
-    # DecisionTreeClassifier(max_depth=5),
-    # RandomForestClassifier(max_depth=5, n_estimators=10, max_features=1),
-    # MLPClassifier(alpha=1, max_iter=1000),
-    # AdaBoostClassifier(),
-    # GaussianNB(),
-    # QuadraticDiscriminantAnalysis()
-    ]
-
-# names = ["Nearest Neighbors", "Linear SVM", "RBF SVM",
-#          #          "Gaussian Process",
-#          "Decision Tree", "Random Forest", "Neural Net", "AdaBoost",
-#          "Naive Bayes", "QDA"]
-
-names = ["Linear SVM", "RBF SVM"
-         #          "Gaussian Process",
-         ]
-
-# for i in range(len(classifiers)):
-#     clas = classifiers[i]
-#     test_pred = clas.fit(train_x, train_y).predict(test_x)
-#     print(names[i])
-#     print(classification_report(test_y, test_pred, labels=[0,1]))
-
+names = ["Linear SVM", "RBF SVM"]
 
 for i in range(len(classifiers)):
     clas = classifiers[i]
     test_pred = clas.fit(train_x, train_y).predict(test_x)
-    from sklearn.metrics import accuracy_score
-    accuracy_score(test_y, test_pred)
-
-    print(names[i], " accuracy: ", accuracy_score(test_y, test_pred))
+    print(names[i], "\n", classification_report(test_y, test_pred, labels=[0, 1]))
