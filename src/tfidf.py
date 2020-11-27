@@ -133,15 +133,16 @@ tfidf = TfidfVectorizer(ngram_range=(1, 2), min_df=2, max_df=0.5)
 train_tfidf = tfidf.fit_transform(train1['text'])
 test_tfidf = tfidf.transform(test1["text"])
 
-print(train_tfidf.shape)
+# print(train_tfidf.shape)
+
+
+# Fit Logistic Regression and Multinomial Naive Bayes models with BoW and TF-IDF, giving four models in total. This is not an extensive list of vectorization options and models and I won't tune any of the models. It's more of an example framework for linear models in NLP
 
 # Fitting a simple Logistic Regression on BoW
 logreg_bow = LogisticRegression(C=1.0)
 scores = model_selection.cross_val_score(
     logreg_bow, train_vectors, train["target"], cv=5, scoring="f1")
 print(scores.mean())
-
-# Fit Logistic Regression and Multinomial Naive Bayes models with BoW and TF-IDF, giving four models in total. This is not an extensive list of vectorization options and models and I won't tune any of the models. It's more of an example framework for linear models in NLP
 
 # Fitting a simple Logistic Regression on TFIDF
 logreg_tfidf = LogisticRegression(C=1.0)
