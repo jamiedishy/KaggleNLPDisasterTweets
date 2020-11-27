@@ -14,6 +14,8 @@ from nltk.corpus import stopwords
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.model_selection import train_test_split
 
+from sklearn.feature_extraction.text import CountVectorizer,TfidfVectorizer
+
 input_file_training = pd.read_csv("../data/train.csv")
 input_file_test = pd.read_csv("../data/test.csv")
 
